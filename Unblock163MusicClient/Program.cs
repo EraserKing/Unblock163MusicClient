@@ -5,6 +5,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using Newtonsoft.Json;
 using Titanium.Web.Proxy;
 using Titanium.Web.Proxy.EventArguments;
 
@@ -12,8 +13,16 @@ namespace Unblock163MusicClient
 {
     internal class Program
     {
-        private static Regex rexPl = new Regex("\"pl\":\\d+", RegexOptions.Compiled);
-        private static Regex rexSt = new Regex("\"st\":-?\\d+", RegexOptions.Compiled);
+        private static Regex _rexPl = new Regex("\"pl\":\\d+", RegexOptions.Compiled);
+        private static Regex _rexDl = new Regex("\"dl\":\\d+", RegexOptions.Compiled);
+        private static Regex _rexFl = new Regex("\"fl\":\\d+", RegexOptions.Compiled);
+        private static Regex _rexSt = new Regex("\"st\":-?\\d+", RegexOptions.Compiled);
+
+        private static string _playbackBitrate = "320000";
+        private static string _playbackQuality = "hMusic";
+
+        private static string _downloadBitrate = "320000";
+        private static string _downloadQuality = "hMusic";
 
         private static void Main(string[] args)
         {
@@ -33,24 +42,134 @@ namespace Unblock163MusicClient
         }
 
         // When we receive the result, we need to check if it need to be modified.
-        public static void OnResponse(object sender, SessionEventArgs e)
+        private static void OnResponse(object sender, SessionEventArgs e)
         {
             if (e.ResponseStatusCode == HttpStatusCode.OK)
             {
                 if (e.ResponseContentType.Trim().ToLower().Contains("text/plain"))
                 {
-                    if (e.RequestUrl.Contains("/eapi/v3/song/detail") || e.RequestUrl.Contains("/eapi/v1/album") || e.RequestUrl.Contains("/eapi/v3/playlist/detail"))
+                    if (e.RequestUrl.Contains("/eapi/v3/song/detail/") || e.RequestUrl.Contains("/eapi/v1/album/") || e.RequestUrl.Contains("/eapi/v3/playlist/detail"))
                     {
                         string modified = ModifyDetailApi(e.GetResponseBodyAsString());
                         e.SetResponseBodyString(modified);
                     }
-                    else if (e.RequestUrl.Contains("/enhance/player/url"))
+                    else if (e.RequestUrl.Contains("/eapi/song/enhance/player/url"))
                     {
-                        string modified = ModifyPlayerApi(e.GetResponseBodyAsString());
+                        SetPlaybackMusicQuality(e.GetResponseBodyAsString());
+                        string modified = ModifyPlayerApi(e.GetResponseBodyAsString(), _playbackBitrate, _playbackQuality);
+                        e.SetResponseBodyString(modified);
+                    }
+                    else if (e.RequestUrl.Contains("/eapi/song/download/limit"))
+                    {
+                        string modified = ModifyDownloadLimitApi();
+                        e.SetResponseBodyString(modified);
+                    }
+                    else if (e.RequestUrl.Contains("/eapi/song/enhance/download/url"))
+                    {
+                        string modified = e.GetResponseBodyAsString();
+                        SetDownloadMusicQuality(modified);
+                        modified = ModifyDownloadApi(modified, _downloadBitrate, _downloadQuality);
                         e.SetResponseBodyString(modified);
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Set music quality for playback.
+        /// </summary>
+        /// <param name="apiResult">The API result containing current music quality settings.</param>
+        private static void SetPlaybackMusicQuality(string apiResult)
+        {
+            JObject root = JObject.Parse(apiResult);
+            string bitrate = root["data"][0]["br"].Value<string>();
+            if (bitrate != _playbackBitrate && bitrate != "0")
+            {
+                Console.WriteLine($"Playback quality changed to {bitrate}");
+                _playbackBitrate = bitrate;
+                switch (bitrate)
+                {
+                    case "96000":
+                        _playbackQuality = "bMusic";
+                        break;
+
+                    case "128000":
+                        _playbackQuality = "lMusic";
+                        break;
+
+                    case "192000":
+                        _playbackQuality = "bMusic";
+                        break;
+
+                    case "320000":
+                        _playbackQuality = "hMusic";
+                        break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Set music quality for download.
+        /// </summary>
+        /// <param name="apiResult">The API result containing current music quality settings.</param>
+        private static void SetDownloadMusicQuality(string apiResult)
+        {
+            JObject root = JObject.Parse(apiResult);
+            string bitrate = root["data"]["br"].Value<string>();
+            if (bitrate != _downloadBitrate && bitrate != "0")
+            {
+                Console.WriteLine($"Download quality changed to {bitrate}");
+                _downloadBitrate = bitrate;
+                switch (bitrate)
+                {
+                    case "96000":
+                        _downloadQuality = "bMusic";
+                        break;
+
+                    case "128000":
+                        _downloadQuality = "lMusic";
+                        break;
+
+                    case "192000":
+                        _downloadQuality = "bMusic";
+                        break;
+
+                    case "320000":
+                        _downloadQuality = "hMusic";
+                        break;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Hack the result of download limit API.
+        /// </summary>
+        /// <returns>Just return a normal status.</returns>
+        private static string ModifyDownloadLimitApi()
+        {
+            return "{\"overflow\":false,\"code\":200}";
+        }
+
+        /// <summary>
+        /// Hack the result of download API and redirects it to the new URL.
+        /// </summary>
+        /// <param name="originalContent">The original API result.</param>
+        /// <param name="targetBitrate">Target bitrate.</param>
+        /// <param name="targetQuality">Target quality.</param>
+        /// <returns>The modified API result.</returns>
+        private static string ModifyDownloadApi(string originalContent, string targetBitrate, string targetQuality)
+        {
+            Console.WriteLine("Hack download API");
+
+            string modified = originalContent;
+            JObject root = JObject.Parse(modified);
+            string songId = root["data"]["id"].Value<string>();
+            string newUrl = NeteaseIdProcess.GetUrl(songId, targetQuality);
+            root["data"]["url"] = newUrl;
+            root["data"]["br"] = targetBitrate;
+            root["data"]["code"] = "200";
+
+            return root.ToString(Formatting.None);
         }
 
         /// <summary>
@@ -60,33 +179,36 @@ namespace Unblock163MusicClient
         /// <returns>The modified API result.</returns>
         private static string ModifyDetailApi(string originalContent)
         {
-            Console.WriteLine("Hack API detail");
+            Console.WriteLine("Hack detail API");
 
             string modified = originalContent;
-            modified = rexPl.Replace(modified, "\"pl\":320000");
-            modified = rexSt.Replace(modified, "\"st\":0");
+            modified = _rexPl.Replace(modified, $"\"pl\":{_playbackBitrate}");
+            modified = _rexDl.Replace(modified, $"\"dl\":{_downloadBitrate}");
+            modified = _rexFl.Replace(modified, "\"fl\":320000");
+            modified = _rexSt.Replace(modified, "\"st\":0");
             return modified;
         }
 
         /// <summary>
         /// Hack the result of player getting song URL and redirects it to the new URL.
         /// </summary>
-        /// <param name="originalContent"></param>
-        /// <returns></returns>
-        private static string ModifyPlayerApi(string originalContent)
+        /// <param name="originalContent">The original API result.</param>
+        /// <param name="targetBitrate">Target bitrate.</param>
+        /// <param name="targetQuality">Target quality.</param>
+        /// <returns>The modified API result.</returns>
+        private static string ModifyPlayerApi(string originalContent, string targetBitrate, string targetQuality)
         {
             Console.WriteLine("Hack API player/url");
 
             string modified = originalContent;
             JObject root = JObject.Parse(modified);
             string songId = root["data"][0]["id"].Value<string>();
-            string newUrl = NeteaseIdProcess.GetUrl(songId, "hMusic");
+            string newUrl = NeteaseIdProcess.GetUrl(songId, targetQuality);
             root["data"][0]["url"] = newUrl;
-            root["data"][0]["br"] = "320000";
+            root["data"][0]["br"] = targetBitrate;
             root["data"][0]["code"] = "200";
 
-            Console.WriteLine(newUrl);
-            return root.ToString();
+            return root.ToString(Formatting.None);
         }
     }
 
@@ -143,7 +265,7 @@ namespace Unblock163MusicClient
         /// <returns></returns>
         private static string GenerateUrl(string dfsId)
         {
-            return $"http://m{DateTime.Now.Second % 3 + 1}.music.126.net/{GetEncId(dfsId)}/{dfsId}.mp3";
+            return $"http://m{DateTime.Now.Second % 2 + 1}.music.126.net/{GetEncId(dfsId)}/{dfsId}.mp3";
         }
 
         /// <summary>
@@ -158,23 +280,26 @@ namespace Unblock163MusicClient
 
             // Downgrade if we don't have higher quality...
 
-            if (!root["songs"][0]["hMusic"].HasValues)
+            if (type == "hMusic" && !root["songs"][0]["hMusic"].HasValues)
             {
                 Console.WriteLine("Downgrade to medium quality.");
                 type = "mMusic";
             }
-            if (!root["songs"][0]["mMusic"].HasValues)
+            if (type == "mMusic" && !root["songs"][0]["mMusic"].HasValues)
             {
                 Console.WriteLine("Downgrade to low quality.");
                 type = "lMusic";
             }
-            if (!root["songs"][0]["lMusic"].HasValues)
+            if (type == "lMusic" && !root["songs"][0]["lMusic"].HasValues)
             {
                 Console.WriteLine("Downgrade to can't be lower quality.");
                 type = "bMusic";
             }
 
-            // Don't ask me what to do if there's even no lowest quality...
+            if (type == "bMusic" && !root["songs"][0]["bMusic"].HasValues)
+            {
+                // Don't ask me what to do if there's even no lowest quality...
+            }
 
             return root["songs"][0][type]["dfsId"].Value<string>();
         }

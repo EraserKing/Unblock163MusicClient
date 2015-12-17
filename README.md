@@ -10,6 +10,17 @@ Didn't do much about this, but just to prove it works!
 4. Save and restart the client.
 5. Enjoy!
 
+## Known issues
+1. Download is not working (The reason seems simple - the proxy component is not functioning for downloading file). However you can add songs to the download queue, disable proxy settings in app and then resume. Everything goes smoothly then. Certainly, you need to set proxy back after having all songs downloaded!
+2. The settings of music quality won't take effect immediately after you change them; instead it will only be switched properly after it meets a normal song (not disabled).
+
+## Open issues
+Please report the following information:
+* Operating system
+* Song / Album / Playlist name (how I can locate to that song)
+* Whether the issue happens on specific songs, or all songs
+* Whether it can be reproduced on web client for the same song
+
 ## Building
 Need the following packages:
 Titanium.Web.Proxy 1.0.0.88 [https://github.com/titanium007/Titanium-Web-Proxy]
