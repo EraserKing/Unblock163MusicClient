@@ -10,6 +10,9 @@ Didn't do much about this, but just to prove it works!
 4. Save and restart the client.
 5. Enjoy!
 
+## Download
+See [https://github.com/EraserKing/Unblock163MusicClient/releases]
+
 ## Known issues
 1. Download is not working (The reason seems simple - the proxy component is not functioning for downloading file). However you can add songs to the download queue, disable proxy settings in app and then resume. Everything goes smoothly then. Certainly, you need to set proxy back after having all songs downloaded!
 2. The settings of music quality won't take effect immediately after you change them; instead it will only be switched properly after it meets a normal song (not disabled).
