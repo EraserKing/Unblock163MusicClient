@@ -19,8 +19,6 @@ When you access song / album / artist / playlist page, or search result, you sho
 4. Save and restart the client.
    
 5. Enjoy!
-   
-   Command line arguments
 
 ## Command line arugments
 
