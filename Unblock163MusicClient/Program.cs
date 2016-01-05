@@ -2,6 +2,7 @@
 using Newtonsoft.Json.Linq;
 using System;
 using System.Net;
+using System.Windows.Forms;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -11,64 +12,200 @@ using Titanium.Web.Proxy.EventArguments;
 
 namespace Unblock163MusicClient
 {
-    internal class Program
+    internal static class Configuration
     {
-        private static Regex _rexPl = new Regex("\"pl\":\\d+", RegexOptions.Compiled);
-        private static Regex _rexDl = new Regex("\"dl\":\\d+", RegexOptions.Compiled);
-        private static Regex _rexFl = new Regex("\"fl\":\\d+", RegexOptions.Compiled);
-        private static Regex _rexSt = new Regex("\"st\":-?\\d+", RegexOptions.Compiled);
+        public static int Port = 3412;
 
-        private static string _playbackBitrate = "320000";
-        private static string _playbackQuality = "hMusic";
+        public static string ForcePlaybackBitrate { get; private set; } = string.Empty;
+        public static string PlaybackBitrate { get; set; } = "320000";
+        public static string PlaybackQuality { get; set; } = "hMusic";
 
-        private static string _downloadBitrate = "320000";
-        private static string _downloadQuality = "hMusic";
+        public static string ForceDownloadBitrate { get; private set; } = String.Empty;
+        public static string DownloadBitrate { get; set; } = "320000";
+        public static string DownloadQuality { get; set; } = "hMusic";
+
+        public static bool Overseas { get; private set; } = false;
+        public static bool Verbose { get; private set; } = false;
+
+        /// <summary>
+        /// Set configuration according to the arguments passed in.
+        /// </summary>
+        /// <param name="args">Command line arguments.</param>
+        public static void SetStartupParameters(string[] args)
+        {
+            for (int i = 0; i < args.Length;)
+            {
+                string argKey = args[i];
+                if (argKey == "/port")
+                {
+                    if (i != args.Length - 1 && !args[i + 1].StartsWith("/"))
+                    {
+                        try
+                        {
+                            Port = int.Parse(args[i + 1]);
+                            i += 2;
+                            if (Port < 1 || Port > 65535)
+                            {
+                                throw new ArgumentException("Invalid port number.");
+                            }
+                        }
+                        catch (FormatException)
+                        {
+
+                            throw new ArgumentException("Invalid port number.");
+                        }
+
+                    }
+                    else
+                    {
+                        throw new ArgumentException("No port number specified.");
+                    }
+                }
+                else if (argKey == "/overseas")
+                {
+                    Console.WriteLine("Overseas mode is turned on.");
+                    Overseas = true;
+                    i++;
+                }
+                else if (argKey == "/verbose")
+                {
+                    Console.WriteLine("Verbose output is turned on.");
+                    Verbose = true;
+                    i++;
+                }
+                else if (argKey == "/playbackbitrate")
+                {
+                    if (i != args.Length - 1 && !args[i + 1].StartsWith("/"))
+                    {
+                        ForcePlaybackBitrate = args[i + 1];
+                        Console.WriteLine($"Playback bitrate is forced to {ForcePlaybackBitrate}");
+                        i += 2;
+                    }
+                    else
+                    {
+                        throw new ArgumentException("No playback bitrate specified.");
+                    }
+                    if (ForcePlaybackBitrate != "" && ForcePlaybackBitrate != "96000" && ForcePlaybackBitrate != "128000" &&
+                        ForcePlaybackBitrate != "192000" && ForcePlaybackBitrate != "320000")
+                    {
+                        throw new ArgumentException("Unrecognized playback bitrate.");
+                    }
+                }
+                else if (argKey == "/downloadbitrate")
+                {
+                    if (i != args.Length - 1 && !args[i + 1].StartsWith("/"))
+                    {
+                        ForceDownloadBitrate = args[i + 1];
+                        Console.WriteLine($"Download bitrate is forced to {ForceDownloadBitrate}");
+                        i += 2;
+                    }
+                    else
+                    {
+                        throw new ArgumentException("No download bitrate specified.");
+                    }
+                    if (ForceDownloadBitrate != "" && ForceDownloadBitrate != "96000" && ForceDownloadBitrate != "128000" &&
+                        ForceDownloadBitrate != "192000" && ForceDownloadBitrate != "320000")
+                    {
+                        throw new ArgumentException("Unrecognized download bitrate.");
+                    }
+                }
+                else
+                {
+                    throw new ArgumentException("Unrecognized startup parameter.");
+                }
+            }
+        }
+    }
+
+    internal static class Program
+    {
+        private static readonly Regex RexPl = new Regex("\"pl\":\\d+", RegexOptions.Compiled);
+        private static readonly Regex RexDl = new Regex("\"dl\":\\d+", RegexOptions.Compiled);
+        private static readonly Regex RexSt = new Regex("\"st\":-?\\d+", RegexOptions.Compiled);
+        private static readonly Regex RexSubp = new Regex("\"subp\":\\d+", RegexOptions.Compiled);
 
         private static void Main(string[] args)
         {
-            int port = 3412;
+            try
+            {
+                Configuration.SetStartupParameters(args);
+            }
+            catch (ArgumentException ex)
+            {
+                MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                Environment.Exit(1);
+            }
 
             ProxyServer.BeforeResponse += OnResponse;
 
-            ProxyServer.ListeningPort = port;
+            ProxyServer.ListeningPort = Configuration.Port;
             ProxyServer.SetAsSystemProxy = false;
             ProxyServer.Start();
 
-            Console.WriteLine($"Proxy started, listening at port {port}");
+            Console.WriteLine($"Proxy started, listening at port {Configuration.Port}");
             Console.Read();
 
             ProxyServer.BeforeResponse -= OnResponse;
             ProxyServer.Stop();
         }
 
-        // When we receive the result, we need to check if it need to be modified.
+        // When we receive the result, we need to check if it needs to be modified.
         private static void OnResponse(object sender, SessionEventArgs e)
         {
             if (e.ResponseStatusCode == HttpStatusCode.OK)
             {
-                if (e.ResponseContentType.Trim().ToLower().Contains("text/plain"))
+                // Most APIs are returned in text/plain but serach songs page is returned in JSON. Don't forget this!
+                if (e.ResponseContentType.Trim().ToLower().Contains("text/plain") ||
+                    e.ResponseContentType.Trim().ToLower().Contains("application/json"))
                 {
-                    if (e.RequestUrl.Contains("/eapi/v3/song/detail/") || e.RequestUrl.Contains("/eapi/v1/album/") || e.RequestUrl.Contains("/eapi/v3/playlist/detail"))
+                    if (Configuration.Verbose)
+                    {
+                        Console.WriteLine($"Accessing URL {e.RequestUrl}");
+                    }
+                    // It should include album / playlist / artist / search pages.
+                    if (e.RequestUrl.Contains("/eapi/v3/song/detail/") || e.RequestUrl.Contains("/eapi/v1/album/") || e.RequestUrl.Contains("/eapi/v3/playlist/detail") ||
+                        e.RequestUrl.Contains("/eapi/batch") || e.RequestUrl.Contains("/eapi/cloudsearch/pc") || e.RequestUrl.Contains("/eapi/v1/artist"))
                     {
                         string modified = ModifyDetailApi(e.GetResponseBodyAsString());
                         e.SetResponseBodyString(modified);
                     }
+                    // This is called when player tries to get the URL for a song.
                     else if (e.RequestUrl.Contains("/eapi/song/enhance/player/url"))
                     {
-                        SetPlaybackMusicQuality(e.GetResponseBodyAsString());
-                        string modified = ModifyPlayerApi(e.GetResponseBodyAsString(), _playbackBitrate, _playbackQuality);
+                        if (string.IsNullOrEmpty(Configuration.ForcePlaybackBitrate))
+                        {
+                            SetPlaybackMusicQuality(e.GetResponseBodyAsString());
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Plackback bitrate is forced set to {Configuration.ForcePlaybackBitrate}");
+                            Configuration.PlaybackBitrate = Configuration.ForcePlaybackBitrate;
+                            Configuration.PlaybackQuality = ParseBitrate(Configuration.ForcePlaybackBitrate);
+                        }
+                        string modified = ModifyPlayerApi(e.GetResponseBodyAsString());
                         e.SetResponseBodyString(modified);
                     }
+                    // When we try to download a song, the API tells whether it exceeds the limit. Of course no!
                     else if (e.RequestUrl.Contains("/eapi/song/download/limit"))
                     {
                         string modified = ModifyDownloadLimitApi();
                         e.SetResponseBodyString(modified);
                     }
+                    // Similar to the player URL API, but used for download.
                     else if (e.RequestUrl.Contains("/eapi/song/enhance/download/url"))
                     {
                         string modified = e.GetResponseBodyAsString();
-                        SetDownloadMusicQuality(modified);
-                        modified = ModifyDownloadApi(modified, _downloadBitrate, _downloadQuality);
+                        if (string.IsNullOrEmpty(Configuration.ForceDownloadBitrate))
+                        {
+                            SetDownloadMusicQuality(modified);
+                        }
+                        else
+                        {
+                            Console.WriteLine($"Download bitrate is forced set to {Configuration.ForceDownloadBitrate}");
+                            Configuration.DownloadBitrate = Configuration.ForceDownloadBitrate;
+                            Configuration.DownloadQuality = ParseBitrate(Configuration.ForceDownloadBitrate);
+                        }
+                        modified = ModifyDownloadApi(modified);
                         e.SetResponseBodyString(modified);
                     }
                 }
@@ -83,28 +220,15 @@ namespace Unblock163MusicClient
         {
             JObject root = JObject.Parse(apiResult);
             string bitrate = root["data"][0]["br"].Value<string>();
-            if (bitrate != _playbackBitrate && bitrate != "0")
+            if (bitrate != Configuration.PlaybackBitrate && bitrate != "0")
             {
-                Console.WriteLine($"Playback quality changed to {bitrate}");
-                _playbackBitrate = bitrate;
-                switch (bitrate)
+                if (Configuration.Verbose)
                 {
-                    case "96000":
-                        _playbackQuality = "bMusic";
-                        break;
-
-                    case "128000":
-                        _playbackQuality = "lMusic";
-                        break;
-
-                    case "192000":
-                        _playbackQuality = "bMusic";
-                        break;
-
-                    case "320000":
-                        _playbackQuality = "hMusic";
-                        break;
+                    Console.WriteLine($"Setting playback music quality {bitrate}");
                 }
+                Console.WriteLine($"Playback quality changed to {bitrate}");
+                Configuration.PlaybackBitrate = bitrate;
+                Configuration.PlaybackQuality = ParseBitrate(bitrate);
             }
         }
 
@@ -116,29 +240,40 @@ namespace Unblock163MusicClient
         {
             JObject root = JObject.Parse(apiResult);
             string bitrate = root["data"]["br"].Value<string>();
-            if (bitrate != _downloadBitrate && bitrate != "0")
+            if (bitrate != Configuration.DownloadBitrate && bitrate != "0")
             {
-                Console.WriteLine($"Download quality changed to {bitrate}");
-                _downloadBitrate = bitrate;
-                switch (bitrate)
+                if (Configuration.Verbose)
                 {
-                    case "96000":
-                        _downloadQuality = "bMusic";
-                        break;
-
-                    case "128000":
-                        _downloadQuality = "lMusic";
-                        break;
-
-                    case "192000":
-                        _downloadQuality = "bMusic";
-                        break;
-
-                    case "320000":
-                        _downloadQuality = "hMusic";
-                        break;
+                    Console.WriteLine($"Setting download music quality {bitrate}");
                 }
+                Console.WriteLine($"Download quality changed to {bitrate}");
+                Configuration.DownloadBitrate = bitrate;
+                Configuration.DownloadQuality = ParseBitrate(bitrate);
             }
+        }
+
+        /// <summary>
+        /// Get quality string from bitrate. Default to HQ.
+        /// </summary>
+        /// <param name="bitrate">Bitrate.</param>
+        /// <returns>Quality.</returns>
+        private static string ParseBitrate(string bitrate)
+        {
+            switch (bitrate)
+            {
+                case "96000":
+                    return "bMusic";
+
+                case "128000":
+                    return "lMusic";
+
+                case "192000":
+                    return "bMusic";
+
+                case "320000":
+                    return "hMusic";
+            }
+            return "hMusic";
         }
 
         /// <summary>
@@ -154,19 +289,17 @@ namespace Unblock163MusicClient
         /// Hack the result of download API and redirects it to the new URL.
         /// </summary>
         /// <param name="originalContent">The original API result.</param>
-        /// <param name="targetBitrate">Target bitrate.</param>
-        /// <param name="targetQuality">Target quality.</param>
         /// <returns>The modified API result.</returns>
-        private static string ModifyDownloadApi(string originalContent, string targetBitrate, string targetQuality)
+        private static string ModifyDownloadApi(string originalContent)
         {
             Console.WriteLine("Hack download API");
 
             string modified = originalContent;
             JObject root = JObject.Parse(modified);
             string songId = root["data"]["id"].Value<string>();
-            string newUrl = NeteaseIdProcess.GetUrl(songId, targetQuality);
+            string newUrl = NeteaseIdProcess.GetUrl(songId, Configuration.DownloadQuality);
             root["data"]["url"] = newUrl;
-            root["data"]["br"] = targetBitrate;
+            root["data"]["br"] = Configuration.DownloadBitrate;
             root["data"]["code"] = "200";
 
             return root.ToString(Formatting.None);
@@ -182,10 +315,17 @@ namespace Unblock163MusicClient
             Console.WriteLine("Hack detail API");
 
             string modified = originalContent;
-            modified = _rexPl.Replace(modified, $"\"pl\":{_playbackBitrate}");
-            modified = _rexDl.Replace(modified, $"\"dl\":{_downloadBitrate}");
-            modified = _rexFl.Replace(modified, "\"fl\":320000");
-            modified = _rexSt.Replace(modified, "\"st\":0");
+            //Playback bitrate
+            modified = RexPl.Replace(modified, $"\"pl\":{Configuration.PlaybackBitrate}");
+
+            //Download bitrate
+            modified = RexDl.Replace(modified, $"\"dl\":{Configuration.DownloadBitrate}");
+
+            //Disabled
+            modified = RexSt.Replace(modified, "\"st\":0");
+
+            //Can favorite
+            modified = RexSubp.Replace(modified, "\"subp\":1");
             return modified;
         }
 
@@ -193,19 +333,17 @@ namespace Unblock163MusicClient
         /// Hack the result of player getting song URL and redirects it to the new URL.
         /// </summary>
         /// <param name="originalContent">The original API result.</param>
-        /// <param name="targetBitrate">Target bitrate.</param>
-        /// <param name="targetQuality">Target quality.</param>
         /// <returns>The modified API result.</returns>
-        private static string ModifyPlayerApi(string originalContent, string targetBitrate, string targetQuality)
+        private static string ModifyPlayerApi(string originalContent)
         {
-            Console.WriteLine("Hack API player/url");
+            Console.WriteLine("Hack player API");
 
             string modified = originalContent;
             JObject root = JObject.Parse(modified);
             string songId = root["data"][0]["id"].Value<string>();
-            string newUrl = NeteaseIdProcess.GetUrl(songId, targetQuality);
+            string newUrl = NeteaseIdProcess.GetUrl(songId, Configuration.PlaybackQuality);
             root["data"][0]["url"] = newUrl;
-            root["data"][0]["br"] = targetBitrate;
+            root["data"][0]["br"] = Configuration.PlaybackBitrate;
             root["data"][0]["code"] = "200";
 
             return root.ToString(Formatting.None);
@@ -238,6 +376,10 @@ namespace Unblock163MusicClient
         public static string GetUrl(string songId, string type)
         {
             string dfsId = GetDfsId(Utility.DownloadPage(HttpMethod.Get, $"http://music.163.com/api/song/detail?id={songId}&ids=[{songId}]"), type);
+            if (Configuration.Verbose)
+            {
+                Console.WriteLine($"Song ID = {songId}, DFS ID = {dfsId}");
+            }
             return GenerateUrl(dfsId);
         }
 
@@ -265,7 +407,16 @@ namespace Unblock163MusicClient
         /// <returns></returns>
         private static string GenerateUrl(string dfsId)
         {
-            return $"http://m{DateTime.Now.Second % 2 + 1}.music.126.net/{GetEncId(dfsId)}/{dfsId}.mp3";
+            string url = $"http://m{DateTime.Now.Second % 2 + 1}.music.126.net/{GetEncId(dfsId)}/{dfsId}.mp3";
+            if (Configuration.Overseas)
+            {
+                url = url.Replace("http://m", "http://p");
+            }
+            if (Configuration.Verbose)
+            {
+                Console.WriteLine($"Song URL = {url}");
+            }
+            return url;
         }
 
         /// <summary>
@@ -299,6 +450,7 @@ namespace Unblock163MusicClient
             if (type == "bMusic" && !root["songs"][0]["bMusic"].HasValues)
             {
                 // Don't ask me what to do if there's even no lowest quality...
+                Console.WriteLine("No resource available.");
             }
 
             return root["songs"][0][type]["dfsId"].Value<string>();
