@@ -164,7 +164,8 @@ namespace Unblock163MusicClient
                     }
                     // It should include album / playlist / artist / search pages.
                     if (e.RequestUrl.Contains("/eapi/v3/song/detail/") || e.RequestUrl.Contains("/eapi/v1/album/") || e.RequestUrl.Contains("/eapi/v3/playlist/detail") ||
-                        e.RequestUrl.Contains("/eapi/batch") || e.RequestUrl.Contains("/eapi/cloudsearch/pc") || e.RequestUrl.Contains("/eapi/v1/artist"))
+                        e.RequestUrl.Contains("/eapi/batch") || e.RequestUrl.Contains("/eapi/cloudsearch/pc") || e.RequestUrl.Contains("/eapi/v1/artist") ||
+                        e.RequestUrl.Contains("/eapi/v1/search/get"))
                     {
                         string modified = ModifyDetailApi(e.GetResponseBodyAsString());
                         e.SetResponseBodyString(modified);
