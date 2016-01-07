@@ -262,17 +262,17 @@ namespace Unblock163MusicClient
         {
             switch (bitrate)
             {
-                case "96000":
-                    return "bMusic";
+                case "320000":
+                    return "hMusic";
+
+                case "192000":
+                    return "mMusic";
 
                 case "128000":
                     return "lMusic";
 
-                case "192000":
+                case "96000":
                     return "bMusic";
-
-                case "320000":
-                    return "hMusic";
             }
             return "hMusic";
         }
