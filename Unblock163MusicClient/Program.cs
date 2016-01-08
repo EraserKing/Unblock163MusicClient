@@ -9,6 +9,7 @@ using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 using Titanium.Web.Proxy;
 using Titanium.Web.Proxy.EventArguments;
+using Titanium.Web.Proxy.Models;
 
 namespace Unblock163MusicClient
 {
@@ -20,7 +21,7 @@ namespace Unblock163MusicClient
         public static string PlaybackBitrate { get; set; } = "320000";
         public static string PlaybackQuality { get; set; } = "hMusic";
 
-        public static string ForceDownloadBitrate { get; private set; } = String.Empty;
+        public static string ForceDownloadBitrate { get; private set; } = string.Empty;
         public static string DownloadBitrate { get; set; } = "320000";
         public static string DownloadQuality { get; set; } = "hMusic";
 
@@ -173,16 +174,26 @@ namespace Unblock163MusicClient
                     // This is called when player tries to get the URL for a song.
                     else if (e.RequestUrl.Contains("/eapi/song/enhance/player/url"))
                     {
-                        if (string.IsNullOrEmpty(Configuration.ForcePlaybackBitrate))
+                        string bitrate = GetPlaybackMusicQuality(e.GetResponseBodyAsString());
+                        // Whatever current playback bitrate is, it's overriden.
+                        if (!string.IsNullOrEmpty(Configuration.ForcePlaybackBitrate))
                         {
-                            SetPlaybackMusicQuality(e.GetResponseBodyAsString());
+                            bitrate = Configuration.ForcePlaybackBitrate;
+                            Console.WriteLine($"Plackback bitrate is forced set to {bitrate}");
                         }
-                        else
+                        // We receive a wrong bitrate...
+                        else if (bitrate == "0")
                         {
-                            Console.WriteLine($"Plackback bitrate is forced set to {Configuration.ForcePlaybackBitrate}");
-                            Configuration.PlaybackBitrate = Configuration.ForcePlaybackBitrate;
-                            Configuration.PlaybackQuality = ParseBitrate(Configuration.ForcePlaybackBitrate);
+                            bitrate = string.IsNullOrEmpty(Configuration.ForcePlaybackBitrate) ? "320000": Configuration.ForcePlaybackBitrate;
+                            Console.WriteLine($"Plackback bitrate is forced set to {bitrate} as the given bitrate is not valid.");
                         }
+                        else if (bitrate != Configuration.PlaybackBitrate)
+                        {
+                            Console.WriteLine($"Plackback bitrate is switched to {bitrate} from {Configuration.PlaybackBitrate}");
+                        }
+                        Configuration.PlaybackBitrate = bitrate;
+                        Configuration.PlaybackQuality = ParseBitrate(Configuration.ForcePlaybackBitrate);
+
                         string modified = ModifyPlayerApi(e.GetResponseBodyAsString());
                         e.SetResponseBodyString(modified);
                     }
@@ -195,29 +206,53 @@ namespace Unblock163MusicClient
                     // Similar to the player URL API, but used for download.
                     else if (e.RequestUrl.Contains("/eapi/song/enhance/download/url"))
                     {
-                        string modified = e.GetResponseBodyAsString();
-                        if (string.IsNullOrEmpty(Configuration.ForceDownloadBitrate))
+                        string bitrate = GetDownloadMusicQuality(e.GetResponseBodyAsString());
+
+                        // Whatever current download bitrate is, it's overriden.
+                        if (!string.IsNullOrEmpty(Configuration.ForceDownloadBitrate))
                         {
-                            SetDownloadMusicQuality(modified);
+                            bitrate = Configuration.ForceDownloadBitrate;
+                            Console.WriteLine($"Download bitrate is forced set to {bitrate}");
                         }
-                        else
+                        // We receive a wrong bitrate...
+                        else if (bitrate == "0")
                         {
-                            Console.WriteLine($"Download bitrate is forced set to {Configuration.ForceDownloadBitrate}");
-                            Configuration.DownloadBitrate = Configuration.ForceDownloadBitrate;
-                            Configuration.DownloadQuality = ParseBitrate(Configuration.ForceDownloadBitrate);
+                            bitrate = string.IsNullOrEmpty(Configuration.ForceDownloadBitrate) ? "320000" : Configuration.ForceDownloadBitrate;
+                            Console.WriteLine($"Download bitrate is forced set to {bitrate} as the given bitrate is not valid.");
                         }
-                        modified = ModifyDownloadApi(modified);
+                        else if (bitrate != Configuration.DownloadBitrate)
+                        {
+                            Console.WriteLine($"Download bitrate is switched to {bitrate} from {Configuration.DownloadBitrate}");
+                        }
+                        Configuration.DownloadBitrate = bitrate;
+                        Configuration.DownloadQuality = ParseBitrate(bitrate);
+
+                        string modified = ModifyDownloadApi(e.GetResponseBodyAsString());
                         e.SetResponseBodyString(modified);
                     }
                 }
             }
         }
 
+        private static string GetPlaybackMusicQuality(string apiResult)
+        {
+            JObject root = JObject.Parse(apiResult);
+            string bitrate = root["data"][0]["br"].Value<string>();
+            return bitrate;
+        }
+
+        private static string GetDownloadMusicQuality(string apiResult)
+        {
+            JObject root = JObject.Parse(apiResult);
+            string bitrate = root["data"]["br"].Value<string>();
+            return bitrate;
+        }
+
         /// <summary>
         /// Set music quality for playback.
         /// </summary>
         /// <param name="apiResult">The API result containing current music quality settings.</param>
-        private static void SetPlaybackMusicQuality(string apiResult)
+        private static void SetPlaybackMusicQuality(string apiResult, string bitrateToSet)
         {
             JObject root = JObject.Parse(apiResult);
             string bitrate = root["data"][0]["br"].Value<string>();
