@@ -1,15 +1,13 @@
-﻿using FSLib.Network.Http;
+﻿using Fiddler;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
+using System.IO;
 using System.Net;
-using System.Windows.Forms;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
-using Newtonsoft.Json;
-using Titanium.Web.Proxy;
-using Titanium.Web.Proxy.EventArguments;
-using Titanium.Web.Proxy.Models;
+using System.Windows.Forms;
 
 namespace Unblock163MusicClient
 {
@@ -52,10 +50,8 @@ namespace Unblock163MusicClient
                         }
                         catch (FormatException)
                         {
-
                             throw new ArgumentException("Invalid port number.");
                         }
-
                     }
                     else
                     {
@@ -137,44 +133,45 @@ namespace Unblock163MusicClient
                 Environment.Exit(1);
             }
 
-            ProxyServer.BeforeResponse += OnResponse;
-
-            ProxyServer.ListeningPort = Configuration.Port;
-            ProxyServer.SetAsSystemProxy = false;
-            ProxyServer.Start();
+            FiddlerCoreStartupFlags fcsf = FiddlerCoreStartupFlags.None;
+            FiddlerApplication.Startup(Configuration.Port, fcsf);
+            // We just need to hack APIs and so let other HTTP requests pass directly. API responses must be fully buffered (and then modified).
+            FiddlerApplication.BeforeRequest += s => { s.bBufferResponse = s.fullUrl.Contains("http://music.163.com/eapi/"); };
+            FiddlerApplication.BeforeResponse += OnResponse;
 
             Console.WriteLine($"Proxy started, listening at port {Configuration.Port}");
             Console.Read();
-
-            ProxyServer.BeforeResponse -= OnResponse;
-            ProxyServer.Stop();
+            FiddlerApplication.Shutdown();
         }
 
-        // When we receive the result, we need to check if it needs to be modified.
-        private static void OnResponse(object sender, SessionEventArgs e)
+        private static void OnResponse(Session s)
         {
-            if (e.ResponseStatusCode == HttpStatusCode.OK)
+            s.bBufferResponse = true;
+            int responseStatusCode = s.responseCode;
+            string responseContentType = s.ResponseHeaders["Content-Type"].Trim().ToLower();
+            string url = s.fullUrl;
+
+            if (responseStatusCode == 200)
             {
                 // Most APIs are returned in text/plain but serach songs page is returned in JSON. Don't forget this!
-                if (e.ResponseContentType.Trim().ToLower().Contains("text/plain") ||
-                    e.ResponseContentType.Trim().ToLower().Contains("application/json"))
+                if (responseContentType.Contains("text/plain") || responseContentType.Contains("application/json"))
                 {
                     if (Configuration.Verbose)
                     {
-                        Console.WriteLine($"Accessing URL {e.RequestUrl}");
+                        Console.WriteLine($"Accessing URL {url}");
                     }
                     // It should include album / playlist / artist / search pages.
-                    if (e.RequestUrl.Contains("/eapi/v3/song/detail/") || e.RequestUrl.Contains("/eapi/v1/album/") || e.RequestUrl.Contains("/eapi/v3/playlist/detail") ||
-                        e.RequestUrl.Contains("/eapi/batch") || e.RequestUrl.Contains("/eapi/cloudsearch/pc") || e.RequestUrl.Contains("/eapi/v1/artist") ||
-                        e.RequestUrl.Contains("/eapi/v1/search/get"))
+                    if (url.Contains("/eapi/v3/song/detail/") || url.Contains("/eapi/v1/album/") || url.Contains("/eapi/v3/playlist/detail") ||
+                        url.Contains("/eapi/batch") || url.Contains("/eapi/cloudsearch/pc") || url.Contains("/eapi/v1/artist") ||
+                        url.Contains("/eapi/v1/search/get"))
                     {
-                        string modified = ModifyDetailApi(e.GetResponseBodyAsString());
-                        e.SetResponseBodyString(modified);
+                        string modified = ModifyDetailApi(s.GetResponseBodyAsString());
+                        s.utilSetResponseBody(modified);
                     }
                     // This is called when player tries to get the URL for a song.
-                    else if (e.RequestUrl.Contains("/eapi/song/enhance/player/url"))
+                    else if (url.Contains("/eapi/song/enhance/player/url"))
                     {
-                        string bitrate = GetPlaybackMusicQuality(e.GetResponseBodyAsString());
+                        string bitrate = GetPlaybackBitrate(s.GetResponseBodyAsString());
                         // Whatever current playback bitrate is, it's overriden.
                         if (!string.IsNullOrEmpty(Configuration.ForcePlaybackBitrate))
                         {
@@ -184,7 +181,7 @@ namespace Unblock163MusicClient
                         // We receive a wrong bitrate...
                         else if (bitrate == "0")
                         {
-                            bitrate = string.IsNullOrEmpty(Configuration.ForcePlaybackBitrate) ? "320000": Configuration.ForcePlaybackBitrate;
+                            bitrate = string.IsNullOrEmpty(Configuration.ForcePlaybackBitrate) ? "320000" : Configuration.ForcePlaybackBitrate;
                             Console.WriteLine($"Plackback bitrate is forced set to {bitrate} as the given bitrate is not valid.");
                         }
                         else if (bitrate != Configuration.PlaybackBitrate)
@@ -194,19 +191,19 @@ namespace Unblock163MusicClient
                         Configuration.PlaybackBitrate = bitrate;
                         Configuration.PlaybackQuality = ParseBitrate(Configuration.ForcePlaybackBitrate);
 
-                        string modified = ModifyPlayerApi(e.GetResponseBodyAsString());
-                        e.SetResponseBodyString(modified);
+                        string modified = ModifyPlayerApi(s.GetResponseBodyAsString());
+                        s.utilSetResponseBody(modified);
                     }
                     // When we try to download a song, the API tells whether it exceeds the limit. Of course no!
-                    else if (e.RequestUrl.Contains("/eapi/song/download/limit"))
+                    else if (url.Contains("/eapi/song/download/limit"))
                     {
                         string modified = ModifyDownloadLimitApi();
-                        e.SetResponseBodyString(modified);
+                        s.utilSetResponseBody(modified);
                     }
                     // Similar to the player URL API, but used for download.
-                    else if (e.RequestUrl.Contains("/eapi/song/enhance/download/url"))
+                    else if (url.Contains("/eapi/song/enhance/download/url"))
                     {
-                        string bitrate = GetDownloadMusicQuality(e.GetResponseBodyAsString());
+                        string bitrate = GetDownloadBitrate(s.GetResponseBodyAsString());
 
                         // Whatever current download bitrate is, it's overriden.
                         if (!string.IsNullOrEmpty(Configuration.ForceDownloadBitrate))
@@ -227,65 +224,35 @@ namespace Unblock163MusicClient
                         Configuration.DownloadBitrate = bitrate;
                         Configuration.DownloadQuality = ParseBitrate(bitrate);
 
-                        string modified = ModifyDownloadApi(e.GetResponseBodyAsString());
-                        e.SetResponseBodyString(modified);
+                        string modified = ModifyDownloadApi(s.GetResponseBodyAsString());
+                        s.utilSetResponseBody(modified);
                     }
                 }
             }
         }
 
-        private static string GetPlaybackMusicQuality(string apiResult)
+        /// <summary>
+        /// Get current playback bitrate from API result.
+        /// </summary>
+        /// <param name="apiResult">API result containing playback bitrate.</param>
+        /// <returns>Current playback bitrate.</returns>
+        private static string GetPlaybackBitrate(string apiResult)
         {
             JObject root = JObject.Parse(apiResult);
             string bitrate = root["data"][0]["br"].Value<string>();
             return bitrate;
         }
 
-        private static string GetDownloadMusicQuality(string apiResult)
+        /// <summary>
+        /// Get current download bitrate from API result.
+        /// </summary>
+        /// <param name="apiResult">API result containing download bitrate.</param>
+        /// <returns>Current download bitrate.</returns>
+        private static string GetDownloadBitrate(string apiResult)
         {
             JObject root = JObject.Parse(apiResult);
             string bitrate = root["data"]["br"].Value<string>();
             return bitrate;
-        }
-
-        /// <summary>
-        /// Set music quality for playback.
-        /// </summary>
-        /// <param name="apiResult">The API result containing current music quality settings.</param>
-        private static void SetPlaybackMusicQuality(string apiResult, string bitrateToSet)
-        {
-            JObject root = JObject.Parse(apiResult);
-            string bitrate = root["data"][0]["br"].Value<string>();
-            if (bitrate != Configuration.PlaybackBitrate && bitrate != "0")
-            {
-                if (Configuration.Verbose)
-                {
-                    Console.WriteLine($"Setting playback music quality {bitrate}");
-                }
-                Console.WriteLine($"Playback quality changed to {bitrate}");
-                Configuration.PlaybackBitrate = bitrate;
-                Configuration.PlaybackQuality = ParseBitrate(bitrate);
-            }
-        }
-
-        /// <summary>
-        /// Set music quality for download.
-        /// </summary>
-        /// <param name="apiResult">The API result containing current music quality settings.</param>
-        private static void SetDownloadMusicQuality(string apiResult)
-        {
-            JObject root = JObject.Parse(apiResult);
-            string bitrate = root["data"]["br"].Value<string>();
-            if (bitrate != Configuration.DownloadBitrate && bitrate != "0")
-            {
-                if (Configuration.Verbose)
-                {
-                    Console.WriteLine($"Setting download music quality {bitrate}");
-                }
-                Console.WriteLine($"Download quality changed to {bitrate}");
-                Configuration.DownloadBitrate = bitrate;
-                Configuration.DownloadQuality = ParseBitrate(bitrate);
-            }
         }
 
         /// <summary>
@@ -330,8 +297,7 @@ namespace Unblock163MusicClient
         {
             Console.WriteLine("Hack download API");
 
-            string modified = originalContent;
-            JObject root = JObject.Parse(modified);
+            JObject root = JObject.Parse(originalContent);
             string songId = root["data"]["id"].Value<string>();
             string newUrl = NeteaseIdProcess.GetUrl(songId, Configuration.DownloadQuality);
             root["data"]["url"] = newUrl;
@@ -374,8 +340,7 @@ namespace Unblock163MusicClient
         {
             Console.WriteLine("Hack player API");
 
-            string modified = originalContent;
-            JObject root = JObject.Parse(modified);
+            JObject root = JObject.Parse(originalContent);
             string songId = root["data"][0]["id"].Value<string>();
             string newUrl = NeteaseIdProcess.GetUrl(songId, Configuration.PlaybackQuality);
             root["data"][0]["url"] = newUrl;
@@ -388,12 +353,26 @@ namespace Unblock163MusicClient
 
     public static class Utility
     {
-        public static string DownloadPage(HttpMethod method, string url)
+        /// <summary>
+        /// Require the content of a URL via GET method.
+        /// </summary>
+        /// <param name="url">URL to get.</param>
+        /// <returns>Content.</returns>
+        public static string GetPage(string url)
         {
-            HttpClient client = new HttpClient();
-            HttpContext<string> context = client.Create<string>(method, url);
-            context.Send();
-            return context.Result;
+            try
+            {
+                HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
+                request.Method = "GET";
+                HttpWebResponse response = (HttpWebResponse)request.GetResponse();
+                return new StreamReader(response.GetResponseStream(), Encoding.UTF8).ReadToEnd();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(url);
+                Console.WriteLine(ex.Message);
+                return "";
+            }
         }
     }
 
@@ -407,11 +386,11 @@ namespace Unblock163MusicClient
         /// Get song url from original song ID.
         /// </summary>
         /// <param name="songId">Song ID.</param>
-        /// <param name="type">Bitrate. Accepts: bMusic, lMusic, mMusic, hMusic.</param>
+        /// <param name="quality">Quality. Accepts: bMusic, lMusic, mMusic, hMusic.</param>
         /// <returns>Song URL.</returns>
-        public static string GetUrl(string songId, string type)
+        public static string GetUrl(string songId, string quality)
         {
-            string dfsId = GetDfsId(Utility.DownloadPage(HttpMethod.Get, $"http://music.163.com/api/song/detail?id={songId}&ids=[{songId}]"), type);
+            string dfsId = GetDfsId(Utility.GetPage($"http://music.163.com/api/song/detail?id={songId}&ids=[{songId}]"), quality);
             if (Configuration.Verbose)
             {
                 Console.WriteLine($"Song ID = {songId}, DFS ID = {dfsId}");
@@ -459,37 +438,37 @@ namespace Unblock163MusicClient
         /// Extract dfs ID from the original API return value.
         /// </summary>
         /// <param name="pageContent">The original API return value.</param>
-        /// <param name="type">Bitrate. Accepts: bMusic, lMusic, mMusic, hMusic.</param>
+        /// <param name="quality">Quality. Accepts: bMusic, lMusic, mMusic, hMusic.</param>
         /// <returns>dfs ID.</returns>
-        private static string GetDfsId(string pageContent, string type)
+        private static string GetDfsId(string pageContent, string quality)
         {
             JObject root = JObject.Parse(pageContent);
 
             // Downgrade if we don't have higher quality...
 
-            if (type == "hMusic" && !root["songs"][0]["hMusic"].HasValues)
+            if (quality == "hMusic" && !root["songs"][0]["hMusic"].HasValues)
             {
                 Console.WriteLine("Downgrade to medium quality.");
-                type = "mMusic";
+                quality = "mMusic";
             }
-            if (type == "mMusic" && !root["songs"][0]["mMusic"].HasValues)
+            if (quality == "mMusic" && !root["songs"][0]["mMusic"].HasValues)
             {
                 Console.WriteLine("Downgrade to low quality.");
-                type = "lMusic";
+                quality = "lMusic";
             }
-            if (type == "lMusic" && !root["songs"][0]["lMusic"].HasValues)
+            if (quality == "lMusic" && !root["songs"][0]["lMusic"].HasValues)
             {
                 Console.WriteLine("Downgrade to can't be lower quality.");
-                type = "bMusic";
+                quality = "bMusic";
             }
 
-            if (type == "bMusic" && !root["songs"][0]["bMusic"].HasValues)
+            if (quality == "bMusic" && !root["songs"][0]["bMusic"].HasValues)
             {
                 // Don't ask me what to do if there's even no lowest quality...
                 Console.WriteLine("No resource available.");
             }
 
-            return root["songs"][0][type]["dfsId"].Value<string>();
+            return root["songs"][0][quality]["dfsId"].Value<string>();
         }
     }
 }
