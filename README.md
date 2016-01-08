@@ -11,14 +11,9 @@ When you access song / album / artist / playlist page, or search result, you sho
 ## Usage
 
 1. Run and it listens at port 3412 (default).
-   
 2. Open Windows client, set proxy to IP 127.0.0.1, port 3412.
-   
-3. It reports errors if you click "Test" and this is okay. *Of course, you could skip clicking that button and it's fine :)* 
-   
-4. Save and restart the client.
-   
-5. Enjoy!
+3. Save and restart the client.
+4. Enjoy!
 
 ## Command line arugments
 
@@ -38,8 +33,8 @@ See [https://github.com/EraserKing/Unblock163MusicClient/releases]
 
 ## Known issues
 
-1. Download is not working (The reason seems simple - the proxy component is not functioning for downloading file). However you can add songs to the download queue, disable proxy settings in app and then resume. Everything goes smoothly then. Certainly, you need to set proxy back after having all songs downloaded!
-2. The settings of music quality won't take effect immediately after you change them; instead it will only be switched properly after it meets a normal song (not disabled). *You could use command line arguments to override this!*
+1. Download is working, but if you just specify download quality to 320k, you may find during downloading the quality returns to 128k. This cannot be solved, but it's **strongly recommended to override the download bitrate to 320k** via command line arguments `/downloadbitrate 320000`.
+2. The settings playback music quality won't take effect immediately after you change them; instead it will only be switched properly after it meets a normal song (not disabled). **You could use command line arguments to override this!**
 
 ## Open issues
 
@@ -54,11 +49,9 @@ Please report the following information:
 
 Need the following packages:
 
-Titanium.Web.Proxy 1.0.0.88 [https://github.com/titanium007/Titanium-Web-Proxy]
+FiddlerCore [http://www.telerik.com/fiddler/fiddlercore]
 
 Newtonsoft.Json 6.0.8 [https://github.com/JamesNK/Newtonsoft.Json]
-
-network.fishlee.net 1.5.6 [https://www.nuget.org/packages/network.fishlee.net/]
 
 Under Visual Studio 2015.
 
