@@ -2,6 +2,7 @@
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Security.Cryptography;
@@ -25,6 +26,21 @@ namespace Unblock163MusicClient
 
         public static bool Overseas { get; private set; } = false;
         public static bool Verbose { get; private set; } = false;
+        public static string OverseasProxy { get; private set; } = "";
+
+        public static List<string> AvailableProxy { get; private set; } = new List<string>();
+
+        static Configuration()
+        {
+            foreach (string ip in new string[] { "16", "43" })
+                AvailableProxy.Add("14.215.9." + ip);
+
+            foreach (string ip in new string[] { "16", "67" })
+                AvailableProxy.Add("219.138.27." + ip);
+
+            foreach (string ip in new string[] { "13", "14", "16", "17", "18", "19", "20", "21", "22", "28", "29", "31", "32", "33", "34", "35", "37", "175", "206" })
+                AvailableProxy.Add("163.177.171." + ip);
+        }
 
         /// <summary>
         /// Set configuration according to the arguments passed in.
@@ -63,6 +79,26 @@ namespace Unblock163MusicClient
                     Console.WriteLine("Overseas mode is turned on.");
                     Overseas = true;
                     i++;
+                }
+                else if (argKey == "/overseasproxy")
+                {
+                    if (i != args.Length - 1 && !args[i + 1].StartsWith("/"))
+                    {
+                        OverseasProxy = args[i + 1];
+                        Console.WriteLine($"Overseas proxy is fixed to {OverseasProxy}");
+                        i += 2;
+                    }
+                    else
+                    {
+                        Random random = new Random();
+                        OverseasProxy = AvailableProxy[random.Next(0, AvailableProxy.Count - 1)];
+                        Console.WriteLine($"Overseas proxy is randomly set to {OverseasProxy}");
+                        i++;
+                    }
+                    if (AvailableProxy.IndexOf(OverseasProxy) == -1)
+                    {
+                        throw new ArgumentException("Invalid overseas proxy specified.\nAvailable proxys are:\n" + string.Join("\n", AvailableProxy));
+                    }
                 }
                 else if (argKey == "/verbose")
                 {
@@ -425,7 +461,14 @@ namespace Unblock163MusicClient
             string url = $"http://m{DateTime.Now.Second % 2 + 1}.music.126.net/{GetEncId(dfsId)}/{dfsId}.mp3";
             if (Configuration.Overseas)
             {
-                url = url.Replace("http://m", "http://p");
+                if (string.IsNullOrEmpty(Configuration.OverseasProxy))
+                {
+                    url = url.Replace("http://m", "http://p");
+                }
+                else
+                {
+                    url = url.Replace("http://m", $"http://{Configuration.OverseasProxy}/m");
+                }
             }
             if (Configuration.Verbose)
             {
