@@ -207,9 +207,9 @@ namespace Unblock163MusicClient
                     // This is called when player tries to get the URL for a song.
                     else if (url.Contains("/eapi/song/enhance/player/url"))
                     {
-//						Console.WriteLine (s.GetResponseBodyAsString ());
+						Console.WriteLine (s.GetResponseBodyAsString ());
 						string code = GetPlayResponseCode (s.GetResponseBodyAsString ());
-						if (code == "404") {
+						if (code != "200") {
 							string bitrate = GetPlaybackBitrate (s.GetResponseBodyAsString ());
 							// Whatever current playback bitrate is, it's overriden.
 							if (!string.IsNullOrEmpty (Configuration.ForcePlaybackBitrate)) {
@@ -243,9 +243,9 @@ namespace Unblock163MusicClient
                     // Similar to the player URL API, but used for download.
                     else if (url.Contains("/eapi/song/enhance/download/url"))
                     {
-//						Console.WriteLine (s.GetResponseBodyAsString ());
+						Console.WriteLine (s.GetResponseBodyAsString ());
 						string code = GetDownloadResponseCode (s.GetResponseBodyAsString ());
-						if (code == "404") {
+						if (code != "200") {
 	                        string bitrate = GetDownloadBitrate(s.GetResponseBodyAsString());
 
 	                        // Whatever current download bitrate is, it's overriden.
