@@ -209,7 +209,8 @@ namespace Unblock163MusicClient
                     {
 						Console.WriteLine (s.GetResponseBodyAsString ());
 						string code = GetPlayResponseCode (s.GetResponseBodyAsString ());
-						if (code != "200") {
+						int br = int.Parse(GetPlaybackBitrate(s.GetResponseBodyAsString ()));
+						if (code != "200" || br < 320000) {
 							string bitrate = GetPlaybackBitrate (s.GetResponseBodyAsString ());
 							// Whatever current playback bitrate is, it's overriden.
 							if (!string.IsNullOrEmpty (Configuration.ForcePlaybackBitrate)) {
@@ -245,7 +246,8 @@ namespace Unblock163MusicClient
                     {
 						Console.WriteLine (s.GetResponseBodyAsString ());
 						string code = GetDownloadResponseCode (s.GetResponseBodyAsString ());
-						if (code != "200") {
+						int br = int.Parse(GetDownloadBitrate(s.GetResponseBodyAsString ()));
+						if (code != "200" || br < 320000) {
 	                        string bitrate = GetDownloadBitrate(s.GetResponseBodyAsString());
 
 	                        // Whatever current download bitrate is, it's overriden.
