@@ -1,3 +1,6 @@
+# IMPORTANT NOTICE
+This project is discontinued. Please visit [https://github.com/EraserKing/CloudMusicGear] and switch to the new tool.
+
 # Unblock163MusicClient
 
 Unblock 163 Cloud Music Windows client.
